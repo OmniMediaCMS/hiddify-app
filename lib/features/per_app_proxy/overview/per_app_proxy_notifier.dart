@@ -47,6 +47,11 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
     await ref.read(appProxyDataSourceProvider).updatePkg(pkg: pkg, mode: _mode!);
   }
 
+  Future<void> toggleTorForPkg(String pkg) async {
+    loggy.info('Updating Tor status for $pkg');
+    await ref.read(appProxyDataSourceProvider).toggleTorForPkg(pkg: pkg, mode: _mode!);
+  }
+
   Future<bool> applyAutoSelection() async {
     loggy.info('Performming auto selection');
     final t = ref.watch(translationsProvider).requireValue;

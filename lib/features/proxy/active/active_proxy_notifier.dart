@@ -92,7 +92,8 @@ class ActiveProxyNotifier extends _$ActiveProxyNotifier with AppLogger {
   final _urlTestThrottler = Throttler(const Duration(seconds: 1));
 
   Future<void> urlTest(String? groupTag_) async {
-    final groupTag = groupTag_ ?? "";
+    final currentGroupTag = state.valueOrNull?.tag;
+    final groupTag = (groupTag_ == null || groupTag_.isEmpty) ? currentGroupTag ?? "" : groupTag_;
     _urlTestThrottler(() async {
       if (state case AsyncData()) {
         await ref.read(hapticServiceProvider.notifier).lightImpact();

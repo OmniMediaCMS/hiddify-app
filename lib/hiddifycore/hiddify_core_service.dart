@@ -1,24 +1,25 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
+import 'dart:io';
 
 import 'package:fpdart/fpdart.dart';
 import 'package:grpc/grpc.dart';
 import 'package:hiddify/core/directories/directories_provider.dart';
-import 'package:hiddify/core/model/directories.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
 import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/features/connection/model/connection_failure.dart';
+import 'package:hiddify/features/per_app_proxy/data/selected_data_provider.dart';
+import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/settings/data/config_option_repository.dart';
-import 'package:hiddify/hiddifycore/core_interface/core_interface.dart';
+import 'package:hiddify/features/tor/tor_control.dart';
 import 'package:hiddify/hiddifycore/generated/v2/hcommon/common.pb.dart';
 import 'package:hiddify/hiddifycore/generated/v2/hcore/hcore.pb.dart';
 import 'package:hiddify/hiddifycore/generated/v2/hcore/hcore_service.pbgrpc.dart';
 import 'package:hiddify/hiddifycore/init_signal.dart';
+import 'package:hiddify/hiddifycore/tor_config_transformer.dart';
 import 'package:hiddify/singbox/model/singbox_config_option.dart';
 import 'package:hiddify/features/log/model/log_level.dart' as config_log_level;
 import 'package:hiddify/singbox/model/core_status.dart';
-import 'package:hiddify/singbox/model/warp_account.dart';
 
 import 'package:hiddify/hiddifycore/core_interface/core_interface_wrapper_stub.dart'
     if (dart.library.io) 'package:hiddify/hiddifycore/core_interface/core_interface_wrapper.dart';
@@ -26,7 +27,6 @@ import 'package:hiddify/utils/custom_loggers.dart';
 import 'package:hiddify/utils/platform_utils.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:loggy/loggy.dart' as loggyl;
-import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:rxdart/rxdart.dart';
 
 class HiddifyCoreService with InfraLogger {
@@ -140,7 +140,9 @@ class HiddifyCoreService with InfraLogger {
     return TaskEither(() async {
       statusController.add(currentState = const CoreStatus.starting());
       loggy.debug("starting");
-      final background = await core.setupBackground(path, name);
+      await const TorControl().stop();
+      final corePath = await _effectiveConfigPath(path);
+      final background = await core.setupBackground(corePath, name);
       if (background != const CoreStatus.started()) {
         statusController.add(currentState = const CoreStatus.stopped());
         return left(background.getCoreAlert() ?? const ConnectionFailure.unexpected("failed to start core"));
@@ -161,7 +163,7 @@ class HiddifyCoreService with InfraLogger {
       try {
         final res = await core.bgClient.start(
           StartRequest(
-            configPath: path,
+            configPath: corePath,
             configName: name,
             // configContent: content,
             disableMemoryLimit: disableMemoryLimit,
@@ -195,6 +197,8 @@ class HiddifyCoreService with InfraLogger {
         return left(const ConnectionFailure.unexpected("failed to start background core"));
       }
 
+      await _startTorIfEnabled();
+
       // if (res.messageType != MessageType.EMPTY) return left(res);
 
       return right(unit);
@@ -206,7 +210,8 @@ class HiddifyCoreService with InfraLogger {
       loggy.debug("stopping");
       var errMsg = "";
       try {
-        final res = await core.bgClient.stop(Empty());
+        await const TorControl().stop();
+        await core.bgClient.stop(Empty());
       } on GrpcError catch (e) {
         if (e.code == StatusCode.unknown && !(e.message?.contains("HTTP/2") ?? false)) {
           errMsg = e.message ?? "failed to stop core: $e";
@@ -227,10 +232,17 @@ class HiddifyCoreService with InfraLogger {
   TaskEither<String, Unit> restart(String path, String name, bool disableMemoryLimit) {
     return TaskEither(() async {
       loggy.debug("restarting");
+      await const TorControl().stop();
+      final corePath = await _effectiveConfigPath(path);
       // if (!await core.restart(path, name)) {
       try {
         final res = await core.bgClient.restart(
-          StartRequest(configPath: path, configName: name, disableMemoryLimit: disableMemoryLimit, delayStart: true),
+          StartRequest(
+            configPath: corePath,
+            configName: name,
+            disableMemoryLimit: disableMemoryLimit,
+            delayStart: true,
+          ),
         );
         if (res.messageType != MessageType.EMPTY) return left("${res.messageType} ${res.message}");
       } on GrpcError catch (e) {
@@ -239,6 +251,8 @@ class HiddifyCoreService with InfraLogger {
           return left("${e.message}");
         }
       }
+
+      await _startTorIfEnabled();
 
       return right(unit);
       // await stop().run();
@@ -250,6 +264,43 @@ class HiddifyCoreService with InfraLogger {
       // }
       // return right(unit);
     });
+  }
+
+  Future<String> _effectiveConfigPath(String path) async {
+    if (!PlatformUtils.isAndroid || !ref.read(Preferences.torEnabled)) return path;
+
+    final content = await File(path).readAsString();
+    final mode = ref.read(Preferences.perAppProxyMode);
+    final torPackages = mode == PerAppProxyMode.include
+        ? await ref.read(appProxyDataSourceProvider).getActiveTorPackages(mode: AppProxyMode.include)
+        : const <String>[];
+    final transformed = const TorConfigTransformer().transform(
+      content: content,
+      perAppProxyMode: mode,
+      perAppTorPackages: torPackages,
+    );
+
+    final directories = ref.read(appDirectoriesProvider).requireValue;
+    final file = File('${directories.tempDir.path}${Platform.pathSeparator}hiddify-tor-config.json');
+    await file.writeAsString(transformed);
+    return file.path;
+  }
+
+  Future<void> _startTorIfEnabled() async {
+    if (!PlatformUtils.isAndroid || !ref.read(Preferences.torEnabled)) return;
+
+    final tor = const TorControl();
+    final upstreamSocksPort = ref.read(ConfigOptions.mixedPort);
+    final upstreamReady = await tor.waitUntilUpstreamReady(upstreamSocksPort: upstreamSocksPort);
+    if (!upstreamReady) {
+      loggy.warning("Tor upstream SOCKS 127.0.0.1:$upstreamSocksPort is not ready; native Tor will report failure");
+    }
+    await tor.start(
+      bridgeMode: ref.read(Preferences.torBridgeMode),
+      customBridges: ref.read(Preferences.torCustomBridges),
+      customBridgesEnabled: ref.read(Preferences.torCustomBridgesEnabled),
+      upstreamSocksPort: upstreamSocksPort,
+    );
   }
 
   TaskEither<String, Unit> resetTunnel() {

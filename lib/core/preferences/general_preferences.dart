@@ -16,6 +16,20 @@ part 'general_preferences.g.dart';
 
 bool _debugIntroPage = false;
 
+enum TorBridgeMode {
+  direct,
+  obfs4,
+  snowflake,
+  meek;
+
+  String get label => switch (this) {
+    TorBridgeMode.direct => 'Direct',
+    TorBridgeMode.obfs4 => 'obfs4',
+    TorBridgeMode.snowflake => 'Snowflake',
+    TorBridgeMode.meek => 'meek',
+  };
+}
+
 abstract class Preferences {
   static final introCompleted = PreferencesNotifier.create(
     "intro_completed",
@@ -116,6 +130,24 @@ abstract class Preferences {
   static final psiphonConsentGiven = PreferencesNotifier.create<bool, bool>("psiphon-consent-given", false);
 
   static final showRouteGeneralOptions = PreferencesNotifier.create<bool, bool>("show-route-general-options", true);
+
+  static final torEnabled = PreferencesNotifier.create<bool, bool>("tor_enabled", false);
+
+  static final torBridgeMode = PreferencesNotifier.create<TorBridgeMode, String>(
+    "tor_bridge_mode",
+    TorBridgeMode.obfs4,
+    mapFrom: TorBridgeMode.values.byName,
+    mapTo: (value) => value.name,
+  );
+
+  static final torCustomBridgesEnabled = PreferencesNotifier.create<bool, bool>("tor_custom_bridges_enabled", false);
+
+  static final torCustomBridges = PreferencesNotifier.create<String, String>("tor_custom_bridges", "");
+
+  static final perAppTorProxyList = PreferencesNotifier.create<List<String>, List<String>>(
+    "per_app_tor_proxy_list",
+    <String>[],
+  );
 }
 
 @Riverpod(keepAlive: true)

@@ -12,6 +12,8 @@ import com.hiddify.core.libbox.Libbox
 import com.hiddify.core.mobile.Mobile
 import com.hiddify.core.mobile.SetupOptions
 import com.hiddify.hiddify.bg.Bugs
+import com.hiddify.hiddify.tor.TorConfig
+import com.hiddify.hiddify.tor.TorProcessManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -32,6 +34,8 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
             Start("start"),
             Stop("stop"),
             Restart("restart"),
+            StartTor("startTor"),
+            StopTor("stopTor"),
             AddGrpcClientPublicKey("add_grpc_client_public_key"),
             GetGrpcServerPublicKey("get_grpc_server_public_key"),
 
@@ -143,6 +147,36 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
                             //    return@launch success(true)
                         }
                         BoxService.stop()
+                        TorProcessManager.stop()
+                        success(true)
+                    }
+                }
+            }
+
+            Trigger.StartTor.method -> {
+                scope.launch {
+                    result.runCatching {
+                        val args = call.arguments as Map<*, *>
+                        val customBridges = (args["customBridges"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                        TorProcessManager.start(
+                            MainActivity.instance.applicationContext,
+                            TorConfig(
+                                socksPort = args["socksPort"] as Int,
+                                controlPort = args["controlPort"] as Int,
+                                upstreamSocksPort = args["upstreamSocksPort"] as Int,
+                                bridgeMode = args["bridgeMode"] as String,
+                                customBridges = customBridges,
+                            )
+                        )
+                        success(true)
+                    }
+                }
+            }
+
+            Trigger.StopTor.method -> {
+                scope.launch {
+                    result.runCatching {
+                        TorProcessManager.stop()
                         success(true)
                     }
                 }

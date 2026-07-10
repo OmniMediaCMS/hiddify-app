@@ -1,7 +1,8 @@
 enum PkgFlag {
   userSelection(1 << 0),
   forceDeselection(1 << 1),
-  autoSelection(1 << 2);
+  autoSelection(1 << 2),
+  torProxy(1 << 3);
 
   final int value;
   const PkgFlag(this.value);

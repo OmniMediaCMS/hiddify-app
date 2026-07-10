@@ -50,6 +50,7 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
 
     final mode = ref.watch(Preferences.perAppProxyMode).toAppProxy();
     final selectedApps = ref.watch(PerAppProxyProvider(mode));
+    final torEnabled = ref.watch(Preferences.torEnabled);
 
     final hideSystemApps = useState(false);
     final isSearching = useState(false);
@@ -305,7 +306,12 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
           itemBuilder: (context, index) {
             final package = packages[index];
             final flag = selectedApps.requireValue[package.packageName];
-            return CheckboxListTile.adaptive(
+            final proxied = flag != null && PkgFlag.checkboxValue(flag) == true;
+            final showTorChoice = torEnabled && mode == AppProxyMode.include && proxied;
+            return ListTile(
+              leading: package.icon == null
+                  ? null
+                  : Image.memory(package.icon!, width: 48, height: 48, cacheWidth: 48, cacheHeight: 48),
               title: Row(
                 children: [
                   Flexible(child: Text(package.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
@@ -319,17 +325,34 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                   ],
                 ],
               ),
-              subtitle: Text(
-                package.packageName,
-                style: Theme.of(context).textTheme.bodySmall,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    package.packageName,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (showTorChoice)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: FilterChip(
+                        avatar: const Icon(Icons.security_rounded, size: 16),
+                        label: const Text('Use Tor'),
+                        selected: PkgFlag.torProxy.check(flag),
+                        onSelected: (_) =>
+                            ref.read(PerAppProxyProvider(mode).notifier).toggleTorForPkg(package.packageName),
+                      ),
+                    ),
+                ],
               ),
-              value: flag == null ? false : PkgFlag.checkboxValue(flag),
-              tristate: true,
-              onChanged: (_) => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
-              secondary: package.icon == null
-                  ? null
-                  : Image.memory(package.icon!, width: 48, height: 48, cacheWidth: 48, cacheHeight: 48),
+              trailing: Checkbox.adaptive(
+                value: flag == null ? false : PkgFlag.checkboxValue(flag),
+                tristate: true,
+                onChanged: (_) => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
+              ),
+              onTap: () => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
             );
           },
           itemCount: packages.length,

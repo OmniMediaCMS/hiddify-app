@@ -9,9 +9,11 @@ part 'app_proxy_data_source.g.dart';
 
 abstract interface class AppProxyDataSource {
   Future<void> updatePkg({required String pkg, required AppProxyMode mode});
+  Future<void> toggleTorForPkg({required String pkg, required AppProxyMode mode});
   Stream<List<AppProxyEntry>> watchAll({required AppProxyMode mode});
   Stream<List<AppProxyEntry>> watchFilterForDisplay({required Set<String> phonePkgs, required AppProxyMode mode});
   Stream<List<String>> watchActivePackages({required Set<String> phonePkgs, required AppProxyMode mode});
+  Future<List<String>> getActiveTorPackages({required AppProxyMode mode});
   Future<List<String>> getPkgsByFlag({required PkgFlag flag, required AppProxyMode mode});
   Future<void> importPkgs({required PerAppProxyBackup backup});
   Future<void> applyAutoSelection({required Set<String> autoList, required AppProxyMode mode});
@@ -57,6 +59,21 @@ class AppProxyDao extends DatabaseAccessor<Db> with _$AppProxyDaoMixin, InfraLog
 
       await (update(appProxyEntries)..where((tbl) => tbl.mode.equalsValue(mode) & tbl.pkgName.equals(pkg))).write(
         AppProxyEntriesCompanion(flags: Value(newFlag)),
+      );
+    });
+  }
+
+  @override
+  Future<void> toggleTorForPkg({required String pkg, required AppProxyMode mode}) {
+    return transaction(() async {
+      final entry = await (select(
+        appProxyEntries,
+      )..where((tbl) => tbl.mode.equalsValue(mode) & tbl.pkgName.equals(pkg))).getSingleOrNull();
+
+      if (entry == null || PkgFlag.checkboxValue(entry.flags) != true) return;
+
+      await (update(appProxyEntries)..where((tbl) => tbl.mode.equalsValue(mode) & tbl.pkgName.equals(pkg))).write(
+        AppProxyEntriesCompanion(flags: Value(PkgFlag.torProxy.toggle(entry.flags))),
       );
     });
   }
@@ -108,6 +125,27 @@ class AppProxyDao extends DatabaseAccessor<Db> with _$AppProxyDaoMixin, InfraLog
         (appProxyEntries.flags.bitwiseAnd(Constant(flag.value)).equals(flag.value));
 
     query.where(filter);
+
+    return query.map((row) => row.read(appProxyEntries.pkgName)!).get();
+  }
+
+  @override
+  Future<List<String>> getActiveTorPackages({required AppProxyMode mode}) {
+    final query = selectOnly(appProxyEntries)..addColumns([appProxyEntries.pkgName]);
+    final isTor = appProxyEntries.flags.bitwiseAnd(Constant(PkgFlag.torProxy.value)).equals(PkgFlag.torProxy.value);
+    final isUserSelected = appProxyEntries.flags
+        .bitwiseAnd(Constant(PkgFlag.userSelection.value))
+        .equals(PkgFlag.userSelection.value);
+    final isAutoSelected = appProxyEntries.flags
+        .bitwiseAnd(Constant(PkgFlag.autoSelection.value))
+        .equals(PkgFlag.autoSelection.value);
+    final isForceDeselected = appProxyEntries.flags
+        .bitwiseAnd(Constant(PkgFlag.forceDeselection.value))
+        .equals(PkgFlag.forceDeselection.value);
+
+    query.where(
+      appProxyEntries.mode.equalsValue(mode) & isTor & (isUserSelected | isAutoSelected) & isForceDeselected.not(),
+    );
 
     return query.map((row) => row.read(appProxyEntries.pkgName)!).get();
   }
