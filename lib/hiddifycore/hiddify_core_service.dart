@@ -289,10 +289,16 @@ class HiddifyCoreService with InfraLogger {
   }
 
   Future<void> _startTorIfEnabled() async {
-    if (!PlatformUtils.isAndroid || !ref.read(Preferences.torEnabled)) return;
+    if (!PlatformUtils.isAndroid) return;
+    final torEnabled = ref.read(Preferences.torEnabled);
+    if (!torEnabled) {
+      loggy.debug("Tor is disabled, skipping native Tor start");
+      return;
+    }
 
     final tor = const TorControl();
     final upstreamSocksPort = ref.read(ConfigOptions.mixedPort);
+    loggy.info("starting Tor after core is connected, upstream SOCKS: 127.0.0.1:$upstreamSocksPort");
     final upstreamReady = await tor.waitUntilUpstreamReady(upstreamSocksPort: upstreamSocksPort);
     if (!upstreamReady) {
       loggy.warning("Tor upstream SOCKS 127.0.0.1:$upstreamSocksPort is not ready; native Tor will report failure");

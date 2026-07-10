@@ -15,9 +15,10 @@ import org.json.JSONObject
 
 object TorProcessManager {
     private const val TAG = "A/TorProcessManager"
-    private val startExecutor = Executors.newSingleThreadExecutor()
+    private val startExecutor = Executors.newCachedThreadPool()
     private val stopExecutor = Executors.newSingleThreadExecutor()
     private var process: Process? = null
+    private var readerThread: Thread? = null
     private var transportRuntime: IptProxyRuntime? = null
     private var bootstrapPercent = 0
     private var summary = "Disabled"
@@ -26,7 +27,9 @@ object TorProcessManager {
 
     fun start(context: Context, config: TorConfig) {
         startExecutor.execute {
-            stopInternal(publishStopping = false)
+            Log.d(TAG, "start requested")
+            resetStaleStateBeforeStart()
+            Log.d(TAG, "stale state reset")
             publish(TorStatus.Starting, 0, "Starting Tor")
 
             if (!isPortOpen("127.0.0.1", config.upstreamSocksPort)) {
@@ -48,6 +51,7 @@ object TorProcessManager {
             val torDir = File(context.filesDir, "tor").also { it.mkdirs() }
             val dataDir = File(torDir, "data").also { it.mkdirs() }
             val bridgeMode = config.bridgeMode.lowercase()
+            Log.d(TAG, "starting transport mode: $bridgeMode")
 
             val transport = try {
                 startTransportIfNeeded(context, torDir, bridgeMode, config.upstreamSocksPort)
@@ -59,22 +63,36 @@ object TorProcessManager {
                 publish(TorStatus.Failed, 0, e.message ?: "Transport failed")
                 return@execute
             }
+            Log.d(TAG, "transport ready: ${transport.localAddress}")
 
             val torrc = File(torDir, "torrc")
             torrc.writeText(buildTorrc(context, config, dataDir, transport))
+            Log.d(TAG, "starting tor process")
 
             try {
                 val builder = ProcessBuilder(torBinary.absolutePath, "-f", torrc.absolutePath)
                     .redirectErrorStream(true)
                 builder.environment()["HOME"] = torDir.absolutePath
                 builder.environment()["TOR_PT_PROXY"] = "socks5://127.0.0.1:${config.upstreamSocksPort}"
-                process = builder.start()
-                readTorOutput(process!!)
+                val running = builder.start()
+                process = running
+                Log.d(TAG, "tor process started")
+                readerThread = Thread({ readTorOutput(running) }, "TorLogReader").also {
+                    it.isDaemon = true
+                    it.start()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "failed to start Tor", e)
                 publish(TorStatus.Failed, bootstrapPercent, e.message ?: "Failed to start Tor")
             }
         }
+    }
+
+    private fun resetStaleStateBeforeStart() {
+        process = null
+        readerThread = null
+        bootstrapPercent = 0
+        summary = "Disabled"
     }
 
     fun stop() {
@@ -98,10 +116,13 @@ object TorProcessManager {
     }
 
     private fun stopInternal(publishStopping: Boolean) {
+        Log.d(TAG, "stop requested")
         if (publishStopping) publish(TorStatus.Stopping, bootstrapPercent, "Stopping Tor")
         val running = process
         process = null
         running?.destroy()
+        readerThread?.interrupt()
+        readerThread = null
         try {
             if (running != null && !running.waitFor(1500, TimeUnit.MILLISECONDS)) {
                 running.destroyForcibly()
@@ -110,8 +131,6 @@ object TorProcessManager {
         } catch (e: Exception) {
             Log.w(TAG, "failed while stopping Tor process", e)
         }
-        transportRuntime?.stop()
-        transportRuntime = null
         bootstrapPercent = 0
         summary = "Disabled"
         publish(TorStatus.Disabled, 0, "Disabled")
@@ -217,6 +236,18 @@ object TorProcessManager {
         useProxy: Boolean = true,
     ): TransportPlugin {
         val stateDir = File(torDir, "pt-state").also { it.mkdirs() }
+        transportRuntime?.let { runtime ->
+            val iptTransportName = runtime.transportName(iptTransportField)
+            val localAddress = runtime.localAddress(iptTransportName)
+            if (localAddress.isNotBlank()) {
+                Log.d(TAG, "reusing transport $torTransportName at $localAddress")
+                return TransportPlugin(
+                    required = true,
+                    torTransportName = torTransportName,
+                    localAddress = localAddress,
+                )
+            }
+        }
         val runtime = IptProxyRuntime.create(
             context = context,
             stateDir = stateDir,
@@ -328,6 +359,7 @@ object TorProcessManager {
 
         companion object {
             private lateinit var iptProxyClass: Class<*>
+            private var cachedClassLoader: DexClassLoader? = null
 
             fun create(context: Context, stateDir: File, proxyUrl: String): IptProxyRuntime {
                 val loader = classLoader(context)
@@ -361,17 +393,16 @@ object TorProcessManager {
             }
 
             private fun classLoader(context: Context): DexClassLoader {
+                cachedClassLoader?.let { return it }
                 val runtimeDir = File(context.codeCacheDir, "iptproxy").also { it.mkdirs() }
                 val jarFile = File(runtimeDir, "classes.jar")
-                if (jarFile.exists()) {
-                    jarFile.setWritable(true, true)
-                    jarFile.delete()
+                if (!jarFile.exists()) {
+                    context.assets.open("iptproxy/classes.jar").use { input ->
+                        jarFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    jarFile.setReadable(true, false)
+                    jarFile.setWritable(false, false)
                 }
-                context.assets.open("iptproxy/classes.jar").use { input ->
-                    jarFile.outputStream().use { output -> input.copyTo(output) }
-                }
-                jarFile.setReadable(true, false)
-                jarFile.setWritable(false, false)
                 val optimizedDir = File(runtimeDir, "optimized").also { it.mkdirs() }
                 val bootParent = TorProcessManager::class.java.classLoader?.parent
                 return DexClassLoader(
@@ -379,7 +410,7 @@ object TorProcessManager {
                     optimizedDir.absolutePath,
                     context.applicationInfo.nativeLibraryDir,
                     bootParent,
-                )
+                ).also { cachedClassLoader = it }
             }
         }
     }

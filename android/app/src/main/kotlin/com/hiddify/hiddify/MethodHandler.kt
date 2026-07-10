@@ -142,11 +142,11 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
                     result.runCatching {
                         val mainActivity = MainActivity.instance
                         val started = mainActivity.serviceStatus.value == Status.Started
+                        TorProcessManager.stopBlocking()
                         if (!started) {
                             Log.w(TAG, "service is not running")
-                            //    return@launch success(true)
+                            return@launch success(true)
                         }
-                        TorProcessManager.stopBlocking()
                         BoxService.stop()
                         success(true)
                     }
@@ -158,6 +158,7 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
                     result.runCatching {
                         val args = call.arguments as Map<*, *>
                         val customBridges = (args["customBridges"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                        Log.d(TAG, "starting Tor")
                         TorProcessManager.start(
                             MainActivity.instance.applicationContext,
                             TorConfig(
@@ -176,6 +177,7 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
             Trigger.StopTor.method -> {
                 scope.launch {
                     result.runCatching {
+                        Log.d(TAG, "stopping Tor")
                         TorProcessManager.stopBlocking()
                         success(true)
                     }
