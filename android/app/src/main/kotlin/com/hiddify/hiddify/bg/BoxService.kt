@@ -39,6 +39,7 @@ import com.hiddify.core.libbox.SystemProxyStatus
 import com.hiddify.hiddify.BuildConfig
 import com.hiddify.hiddify.MainActivity
 import com.hiddify.hiddify.constant.Bugs
+import com.hiddify.hiddify.tor.TorProcessManager
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -99,6 +100,7 @@ class BoxService(
         }
 
         fun stop() {
+            TorProcessManager.stop()
             Application.application.sendBroadcast(
                     Intent(Action.SERVICE_CLOSE).setPackage(
                             Application.application.packageName
@@ -263,6 +265,7 @@ class BoxService(
     private fun stopService() {
         if (status.value == Status.Stopped) return
         status.value = Status.Stopping
+        TorProcessManager.stop()
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
             receiverRegistered = false
@@ -305,6 +308,7 @@ class BoxService(
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
         Settings.startedByUser = false
+        TorProcessManager.stop()
         withContext(Dispatchers.Main) {
             if (receiverRegistered) {
                 service.unregisterReceiver(receiver)
@@ -353,10 +357,12 @@ class BoxService(
     }
 
     fun onDestroy() {
+        TorProcessManager.stop()
         binder.close()
     }
 
     fun onRevoke() {
+        TorProcessManager.stop()
         stopService()
     }
 

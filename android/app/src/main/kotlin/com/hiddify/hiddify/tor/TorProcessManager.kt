@@ -8,12 +8,15 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.lang.reflect.Proxy
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
 object TorProcessManager {
     private const val TAG = "A/TorProcessManager"
-    private val executor = Executors.newSingleThreadExecutor()
+    private val startExecutor = Executors.newSingleThreadExecutor()
+    private val stopExecutor = Executors.newSingleThreadExecutor()
     private var process: Process? = null
     private var transportRuntime: IptProxyRuntime? = null
     private var bootstrapPercent = 0
@@ -22,7 +25,7 @@ object TorProcessManager {
     val status = MutableLiveData(statusMap(TorStatus.Disabled, 0, "Disabled"))
 
     fun start(context: Context, config: TorConfig) {
-        executor.execute {
+        startExecutor.execute {
             stopInternal(publishStopping = false)
             publish(TorStatus.Starting, 0, "Starting Tor")
 
@@ -75,19 +78,38 @@ object TorProcessManager {
     }
 
     fun stop() {
-        executor.execute {
+        stopExecutor.execute {
             stopInternal(publishStopping = true)
+        }
+    }
+
+    fun stopBlocking(timeoutMillis: Long = 4000L) {
+        val done = CountDownLatch(1)
+        stopExecutor.execute {
+            try {
+                stopInternal(publishStopping = true)
+            } finally {
+                done.countDown()
+            }
+        }
+        if (!done.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
+            Log.w(TAG, "timed out waiting for Tor to stop")
         }
     }
 
     private fun stopInternal(publishStopping: Boolean) {
         if (publishStopping) publish(TorStatus.Stopping, bootstrapPercent, "Stopping Tor")
-        process?.destroy()
-        try {
-            process?.waitFor()
-        } catch (_: Exception) {
-        }
+        val running = process
         process = null
+        running?.destroy()
+        try {
+            if (running != null && !running.waitFor(1500, TimeUnit.MILLISECONDS)) {
+                running.destroyForcibly()
+                running.waitFor(1500, TimeUnit.MILLISECONDS)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "failed while stopping Tor process", e)
+        }
         transportRuntime?.stop()
         transportRuntime = null
         bootstrapPercent = 0

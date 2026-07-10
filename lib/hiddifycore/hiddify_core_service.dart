@@ -210,7 +210,7 @@ class HiddifyCoreService with InfraLogger {
       loggy.debug("stopping");
       var errMsg = "";
       try {
-        await const TorControl().stop();
+        await _stopTorIfAndroid();
         await core.bgClient.stop(Empty());
       } on GrpcError catch (e) {
         if (e.code == StatusCode.unknown && !(e.message?.contains("HTTP/2") ?? false)) {
@@ -221,6 +221,8 @@ class HiddifyCoreService with InfraLogger {
       } catch (e) {
         loggy.error("failed to stop bg core: $e");
         // left("failed to stop core: $e");
+      } finally {
+        await _stopTorIfAndroid();
       }
       if (!await core.stop()) {}
       statusController.add(currentState = const CoreStatus.stopped());
@@ -301,6 +303,11 @@ class HiddifyCoreService with InfraLogger {
       customBridgesEnabled: ref.read(Preferences.torCustomBridgesEnabled),
       upstreamSocksPort: upstreamSocksPort,
     );
+  }
+
+  Future<void> _stopTorIfAndroid() async {
+    if (!PlatformUtils.isAndroid) return;
+    await const TorControl().stop();
   }
 
   TaskEither<String, Unit> resetTunnel() {
@@ -509,6 +516,9 @@ class HiddifyCoreService with InfraLogger {
           .endWith(CoreInfoResponse(coreState: CoreStates.STOPPED))
           .map((event) {
             currentState = CoreStatus.fromCoreInfo(event);
+            if (currentState is CoreStopped) {
+              unawaited(_stopTorIfAndroid());
+            }
             statusController.add(currentState);
             return currentState;
           }),

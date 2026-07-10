@@ -146,8 +146,8 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
                             Log.w(TAG, "service is not running")
                             //    return@launch success(true)
                         }
+                        TorProcessManager.stopBlocking()
                         BoxService.stop()
-                        TorProcessManager.stop()
                         success(true)
                     }
                 }
@@ -176,7 +176,7 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
             Trigger.StopTor.method -> {
                 scope.launch {
                     result.runCatching {
-                        TorProcessManager.stop()
+                        TorProcessManager.stopBlocking()
                         success(true)
                     }
                 }
