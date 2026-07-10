@@ -84,10 +84,24 @@ final torStatusProvider = StreamProvider<TorConnectionStatus>((ref) async* {
   }
 });
 
-final torExitInfoProvider = FutureProvider.autoDispose<TorExitInfo?>((ref) async {
+final torExitInfoProvider = StreamProvider.autoDispose<TorExitInfo?>((ref) async* {
   final status = ref.watch(torStatusProvider).valueOrNull;
-  if (!PlatformUtils.isAndroid || status?.isConnected != true) return null;
+  if (!PlatformUtils.isAndroid || status?.isConnected != true) {
+    yield null;
+    return;
+  }
 
+  while (true) {
+    try {
+      yield await _probeTorExitInfo();
+    } catch (_) {
+      yield null;
+    }
+    await Future<void>.delayed(const Duration(seconds: 30));
+  }
+});
+
+Future<TorExitInfo> _probeTorExitInfo() async {
   final started = DateTime.now();
   final response = await _httpGetViaSocks5(
     socksHost: '127.0.0.1',
@@ -98,10 +112,10 @@ final torExitInfoProvider = FutureProvider.autoDispose<TorExitInfo?>((ref) async
   );
   final latency = DateTime.now().difference(started);
   final bodyStart = response.indexOf('\r\n\r\n');
-  if (bodyStart < 0) return null;
+  if (bodyStart < 0) throw const FormatException('missing HTTP body');
   final body = response.substring(bodyStart + 4);
   return TorExitInfo.fromJson(jsonDecode(body) as Map<String, dynamic>, latency);
-});
+}
 
 Future<String> _httpGetViaSocks5({
   required String socksHost,

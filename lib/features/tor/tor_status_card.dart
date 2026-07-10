@@ -54,7 +54,7 @@ class TorStatusCard extends HookConsumerWidget {
               if (status.isConnected)
                 exitInfo.when(
                   data: (info) => info == null
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? Text('Latency unavailable', style: theme.textTheme.bodySmall)
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           mainAxisSize: MainAxisSize.min,
