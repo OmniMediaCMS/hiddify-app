@@ -19,7 +19,7 @@
 
 ## Hiddify app 是什么？
 
-<p dir="ltr" style="font-size: 16px">一款基于 <a href="https://github.com/SagerNet/sing-box">Sing-box</a> 通用代理工具的跨平台代理客户端。Hiddify 提供了较全面的代理功能，例如自动选择节点、TUN 模式、使用远程配置文件等。Hiddify 无广告，并且代码开源。它为大家自由访问互联网提供了一个支持多种协议的、安全且私密的工具。</p>
+<p dir="ltr" style="font-size: 16px">一款基于 <a href="https://github.com/SagerNet/sing-box">Sing-box</a> 通用代理工具的跨平台代理客户端。Hiddify 提供了较全面的代理功能，例如自动选择节点、TUN 模式、使用远程配置文件等。在 Android 上，Hiddify 还支持通过 Tor 路由选定流量，并支持多种 bridge 模式和自定义 Tor bridges。Hiddify 无广告，并且代码开源。它为大家自由访问互联网提供了一个支持多种协议的、安全且私密的工具。</p>
 
 <div align=center>
 <img width=90% alt="English Demo" src="https://github.com/hiddify/hiddify-app/assets/125398461/ffe5346d-3404-470f-b5e0-4364e23743d2">
@@ -29,6 +29,8 @@
 ## 🚀 主要特性
 
 ✈️ 多平台客户端：Android、iOS、Windows、macOS 和 Linux
+
+🧅 Android 支持 Tor：Direct、obfs4、Snowflake、meek 和自定义 bridges
 
 ⭐ 简单易用的用户界面
 

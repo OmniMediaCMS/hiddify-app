@@ -25,7 +25,7 @@
 
 ## Hiddify app とは？
 
-<p dir="ltr" style="font-size: 16px"><a href="https://github.com/SagerNet/sing-box">Sing-box</a> ユニバーサルプロキシツールチェーンに基づくマルチプラットフォームプロキシクライアントです。Hiddify は、自動ノード選択、TUN モード、リモートプロファイルなど、幅広い機能を提供します。Hiddify は無料でオープンソースです。幅広いプロトコルをサポートし、無料インターネットにアクセスするための安全でプライベートな方法を提供します。</p>
+<p dir="ltr" style="font-size: 16px"><a href="https://github.com/SagerNet/sing-box">Sing-box</a> ユニバーサルプロキシツールチェーンに基づくマルチプラットフォームプロキシクライアントです。Hiddify は、自動ノード選択、TUN モード、リモートプロファイルなど、幅広い機能を提供します。Android では、選択したトラフィックを Tor 経由でルーティングでき、bridge モードとカスタム Tor bridges にも対応しています。Hiddify は無料でオープンソースです。幅広いプロトコルをサポートし、無料インターネットにアクセスするための安全でプライベートな方法を提供します。</p>
 
 <div align=center>
 <img width=90% alt="English Demo" src="https://github.com/hiddify/hiddify-app/assets/125398461/ffe5346d-3404-470f-b5e0-4364e23743d2">
@@ -35,6 +35,8 @@
 ## 🚀 主な特徴
 
 ✈️ マルチプラットフォーム: Android、iOS、Windows、macOS 及び Linux
+
+🧅 Android Tor サポート: Direct、obfs4、Snowflake、meek、カスタム bridges
 
 ⭐ 直感的でアクセシブルな UI
 

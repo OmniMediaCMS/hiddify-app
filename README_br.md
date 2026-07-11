@@ -24,7 +24,7 @@
 
 ## O que é Hiddify app?
 
-<p dir="ltr" style="font-size: 16px">Um cliente de proxy multiplataforma baseado na ferramenta de proxy universal <a href="https://github.com/SagerNet/sing-box">Sing-box</a>. O Hiddify oferece uma ampla gama de recursos, como seleção automática de nós, modo TUN, perfis remotos, etc. O Hiddify é livre de anúncios e de código aberto. Com suporte para uma ampla variedade de protocolos, ele oferece uma maneira segura e privada de acessar a internet gratuitamente.</p>
+<p dir="ltr" style="font-size: 16px">Um cliente de proxy multiplataforma baseado na ferramenta de proxy universal <a href="https://github.com/SagerNet/sing-box">Sing-box</a>. O Hiddify oferece uma ampla gama de recursos, como seleção automática de nós, modo TUN, perfis remotos, etc. No Android, o Hiddify também suporta rotear o tráfego selecionado pelo Tor com modos de bridge e Tor bridges customizadas. O Hiddify é livre de anúncios e de código aberto. Com suporte para uma ampla variedade de protocolos, ele oferece uma maneira segura e privada de acessar a internet gratuitamente.</p>
 
 <div align=center>
 <img width=90% alt="English Demo" src="https://github.com/hiddify/hiddify-app/assets/125398461/ffe5346d-3404-470f-b5e0-4364e23743d2">
@@ -34,6 +34,8 @@
 ## 🚀 Principais recursos
 
 ✈️ Multiplataforma: Android, iOS, Windows, macOS e Linux
+
+🧅 Suporte a Tor no Android com Direct, obfs4, Snowflake, meek e bridges customizadas
 
 ⭐ Interface intuitiva e acessível
 
