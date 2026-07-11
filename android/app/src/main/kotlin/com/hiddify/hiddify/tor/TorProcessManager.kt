@@ -141,9 +141,7 @@ object TorProcessManager {
     }
 
     private fun stopTransportRuntime() {
-        val runtime = transportRuntime
-        transportRuntime = null
-        runtime?.stop()
+        transportRuntime?.stop()
     }
 
     private fun readTorOutput(running: Process) {
@@ -258,11 +256,13 @@ object TorProcessManager {
                 )
             }
         }
-        val runtime = IptProxyRuntime.create(
+        val proxyUrl = "socks5://127.0.0.1:$upstreamSocksPort"
+        val runtime = transportRuntime ?: IptProxyRuntime.create(
             context = context,
             stateDir = stateDir,
-            proxyUrl = "socks5://127.0.0.1:$upstreamSocksPort",
-        )
+            proxyUrl = proxyUrl,
+        ).also { transportRuntime = it }
+        runtime.updateProxyUrl(proxyUrl)
         val iptTransportName = runtime.transportName(iptTransportField)
         runtime.start(iptTransportName)
         val localAddress = runtime.localAddress(iptTransportName)
@@ -270,7 +270,6 @@ object TorProcessManager {
             runtime.stop()
             throw IllegalStateException("$torTransportName transport did not provide a local address")
         }
-        transportRuntime = runtime
         return TransportPlugin(
             required = true,
             torTransportName = torTransportName,
@@ -344,7 +343,7 @@ object TorProcessManager {
     private class IptProxyRuntime private constructor(
         private val controller: Any,
         private val controllerClass: Class<*>,
-        private val proxyUrl: String,
+        private var proxyUrl: String,
         private var runningTransport: String?,
     ) {
         fun transportName(fieldName: String): String {
@@ -359,6 +358,10 @@ object TorProcessManager {
                 throw e.targetException ?: e
             }
             runningTransport = transport
+        }
+
+        fun updateProxyUrl(nextProxyUrl: String) {
+            proxyUrl = nextProxyUrl
         }
 
         fun localAddress(transport: String): String {
