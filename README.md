@@ -37,6 +37,10 @@
 
 🧅 Android Tor support with Direct, obfs4, Snowflake, meek and custom bridges
 
+<div align="center">
+  <img src="./docs/android-tor-preview.png" width="320" alt="Android Tor support preview" />
+</div>
+
 ⭐ Intuitive and accessible UI
 
 🔍 Delay based node selection
