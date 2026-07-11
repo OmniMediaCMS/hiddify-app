@@ -69,6 +69,19 @@ class TorExitInfo {
   }
 }
 
+class _TorGeoIpSource {
+  const _TorGeoIpSource(this.url);
+
+  final String url;
+}
+
+const _torGeoIpSources = [
+  _TorGeoIpSource('https://ipwho.is/'),
+  _TorGeoIpSource('https://api.ip.sb/geoip/'),
+  _TorGeoIpSource('https://ipapi.co/json/'),
+  _TorGeoIpSource('https://ipinfo.io/json/'),
+];
+
 final torStatusProvider = StreamProvider<TorConnectionStatus>((ref) async* {
   final enabled = ref.watch(Preferences.torEnabled);
   if (!PlatformUtils.isAndroid || !enabled) {
@@ -102,29 +115,44 @@ final torExitInfoProvider = StreamProvider.autoDispose<TorExitInfo?>((ref) async
 });
 
 Future<TorExitInfo> _probeTorExitInfo() async {
-  final started = DateTime.now();
-  final response = await _httpGetViaSocks5(
-    socksHost: '127.0.0.1',
-    socksPort: 19050,
-    targetHost: 'ipwho.is',
-    targetPort: 80,
-    request: 'GET / HTTP/1.1\r\nHost: ipwho.is\r\nConnection: close\r\n\r\n',
-  );
-  final latency = DateTime.now().difference(started);
-  final bodyStart = response.indexOf('\r\n\r\n');
-  if (bodyStart < 0) throw const FormatException('missing HTTP body');
-  final body = response.substring(bodyStart + 4);
-  return TorExitInfo.fromJson(jsonDecode(body) as Map<String, dynamic>, latency);
+  Object? lastError;
+  for (final source in _torGeoIpSources) {
+    try {
+      return await _probeTorExitInfoSource(source);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw StateError('unable to retrieve Tor exit info: $lastError');
 }
 
-Future<String> _httpGetViaSocks5({
-  required String socksHost,
-  required int socksPort,
-  required String targetHost,
-  required int targetPort,
-  required String request,
-}) async {
-  final socket = await Socket.connect(socksHost, socksPort, timeout: const Duration(seconds: 8));
+Future<TorExitInfo> _probeTorExitInfoSource(_TorGeoIpSource source) async {
+  final uri = Uri.parse(source.url);
+  final stopwatch = Stopwatch()..start();
+  final response = await _httpGetViaSocks5(uri);
+  final latency = stopwatch.elapsed;
+  final bodyStart = response.indexOf('\r\n\r\n');
+  if (bodyStart < 0) throw const FormatException('missing HTTP body');
+  final headers = response.substring(0, bodyStart);
+  final statusCode = _httpStatusCode(headers);
+  if (statusCode < 200 || statusCode >= 300) {
+    throw HttpException('GeoIP source returned HTTP $statusCode', uri: uri);
+  }
+  final rawBody = response.substring(bodyStart + 4);
+  final body = _decodeHttpBody(headers, rawBody);
+  final info = TorExitInfo.fromJson(jsonDecode(body) as Map<String, dynamic>, latency);
+  if (info.ip.isEmpty && info.countryCode.isEmpty) throw const FormatException('missing GeoIP fields');
+  return info;
+}
+
+Future<String> _httpGetViaSocks5(Uri uri) async {
+  final targetHost = uri.host;
+  final targetPort = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+  final path = uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path;
+  final requestPath = path.isEmpty ? '/' : path;
+  final request = 'GET $requestPath HTTP/1.1\r\nHost: $targetHost\r\nConnection: close\r\n\r\n';
+
+  final socket = await Socket.connect('127.0.0.1', 19050, timeout: const Duration(seconds: 8));
   final reader = _SocketReader(socket);
   try {
     socket.add([0x05, 0x01, 0x00]);
@@ -132,15 +160,66 @@ Future<String> _httpGetViaSocks5({
 
     final hostBytes = ascii.encode(targetHost);
     socket.add([0x05, 0x01, 0x00, 0x03, hostBytes.length, ...hostBytes, targetPort >> 8, targetPort & 0xff]);
-    final reply = await reader.readExact(10).timeout(const Duration(seconds: 8));
-    if (reply[1] != 0x00) throw SocketException('SOCKS5 connect failed: ${reply[1]}');
+    await _readSocks5ConnectReply(reader).timeout(const Duration(seconds: 8));
 
-    socket.write(request);
-    return utf8.decode(await reader.readUntilDone().timeout(const Duration(seconds: 20)));
+    if (uri.scheme == 'https') {
+      reader.pause();
+      final secureSocket = await SecureSocket.secure(socket, host: targetHost).timeout(const Duration(seconds: 8));
+      final secureReader = _SocketReader(secureSocket);
+      try {
+        secureSocket.write(request);
+        return utf8.decode(await secureReader.readUntilDone().timeout(const Duration(seconds: 20)));
+      } finally {
+        await secureReader.cancel();
+        await secureSocket.close();
+      }
+    } else {
+      socket.write(request);
+      return utf8.decode(await reader.readUntilDone().timeout(const Duration(seconds: 20)));
+    }
   } finally {
     await reader.cancel();
     await socket.close();
   }
+}
+
+Future<void> _readSocks5ConnectReply(_SocketReader reader) async {
+  final header = await reader.readExact(4);
+  if (header[1] != 0x00) throw SocketException('SOCKS5 connect failed: ${header[1]}');
+  final addressLength = switch (header[3]) {
+    0x01 => 4,
+    0x03 => (await reader.readExact(1)).first,
+    0x04 => 16,
+    _ => throw SocketException('SOCKS5 unsupported address type: ${header[3]}'),
+  };
+  await reader.readExact(addressLength + 2);
+}
+
+int _httpStatusCode(String headers) {
+  final statusLineEnd = headers.indexOf('\r\n');
+  final statusLine = statusLineEnd < 0 ? headers : headers.substring(0, statusLineEnd);
+  final parts = statusLine.split(' ');
+  if (parts.length < 2) throw FormatException('invalid HTTP status line: $statusLine');
+  return int.parse(parts[1]);
+}
+
+String _decodeHttpBody(String headers, String body) {
+  if (!headers.toLowerCase().contains('transfer-encoding: chunked')) return body;
+  final decoded = StringBuffer();
+  var cursor = 0;
+  while (cursor < body.length) {
+    final sizeEnd = body.indexOf('\r\n', cursor);
+    if (sizeEnd < 0) throw const FormatException('invalid chunked HTTP body');
+    final sizeText = body.substring(cursor, sizeEnd).split(';').first.trim();
+    final size = int.parse(sizeText, radix: 16);
+    if (size == 0) break;
+    final chunkStart = sizeEnd + 2;
+    final chunkEnd = chunkStart + size;
+    if (chunkEnd > body.length) throw const FormatException('truncated chunked HTTP body');
+    decoded.write(body.substring(chunkStart, chunkEnd));
+    cursor = chunkEnd + 2;
+  }
+  return decoded.toString();
 }
 
 class _SocketReader {
@@ -187,6 +266,10 @@ class _SocketReader {
 
   Future<void> cancel() async {
     await _subscription?.cancel();
+  }
+
+  void pause() {
+    _subscription?.pause();
   }
 
   Future<void> _wait() {

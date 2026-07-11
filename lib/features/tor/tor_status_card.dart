@@ -59,7 +59,12 @@ class TorStatusCard extends HookConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(info.city.isEmpty ? info.countryCode : info.city, style: theme.textTheme.titleSmall),
+                            Text(
+                              _locationText(info),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall,
+                            ),
                             const Gap(2),
                             Text(
                               '${info.latency.inMilliseconds} ms',
@@ -86,6 +91,15 @@ class TorStatusCard extends HookConsumerWidget {
     TorConnectionPhase.failed => 'Failed',
     TorConnectionPhase.stopping => 'Stopping',
   };
+
+  String _locationText(TorExitInfo info) {
+    final country = info.countryCode.trim();
+    final city = info.city.trim();
+    if (country.isNotEmpty && city.isNotEmpty) return '$country · $city';
+    if (country.isNotEmpty) return country;
+    if (city.isNotEmpty) return city;
+    return info.ip;
+  }
 
   Color _statusColor(ThemeData theme, TorConnectionStatus status) => switch (status.phase) {
     TorConnectionPhase.connected => Colors.green,
