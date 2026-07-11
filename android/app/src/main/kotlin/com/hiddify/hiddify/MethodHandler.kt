@@ -164,6 +164,7 @@ class MethodHandler(private val scope: CoroutineScope) : FlutterPlugin,
                             TorConfig(
                                 socksPort = args["socksPort"] as Int,
                                 controlPort = args["controlPort"] as Int,
+                                dnsPort = args["dnsPort"] as Int,
                                 upstreamSocksPort = args["upstreamSocksPort"] as Int,
                                 bridgeMode = args["bridgeMode"] as String,
                                 customBridges = customBridges,

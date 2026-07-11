@@ -10,12 +10,14 @@ import 'package:hiddify/core/model/region.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
 import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
+import 'package:hiddify/features/connection/notifier/connection_notifier.dart';
 import 'package:hiddify/features/per_app_proxy/data/auto_selection_repository.dart';
 import 'package:hiddify/features/per_app_proxy/data/auto_selection_repository_provider.dart';
 import 'package:hiddify/features/per_app_proxy/data/selected_data_provider.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_backup.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
+import 'package:hiddify/features/profile/notifier/active_profile_notifier.dart';
 import 'package:hiddify/features/settings/data/config_option_repository.dart';
 import 'package:hiddify/utils/utils.dart';
 import 'package:installed_apps/index.dart';
@@ -45,11 +47,15 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   Future<void> updatePkg(String pkg) async {
     loggy.info('Updationg $pkg status');
     await ref.read(appProxyDataSourceProvider).updatePkg(pkg: pkg, mode: _mode!);
+    await _syncActivePackagesPreference();
+    await _reconnectIfRunning();
   }
 
   Future<void> toggleTorForPkg(String pkg) async {
     loggy.info('Updating Tor status for $pkg');
     await ref.read(appProxyDataSourceProvider).toggleTorForPkg(pkg: pkg, mode: _mode!);
+    await _syncActivePackagesPreference();
+    await _reconnectIfRunning();
   }
 
   Future<bool> applyAutoSelection() async {
@@ -61,6 +67,8 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
       case AutoSelectionResult.success:
         final autoList = rs.$1!;
         await ref.read(appProxyDataSourceProvider).applyAutoSelection(autoList: autoList, mode: _mode!);
+        await _syncActivePackagesPreference();
+        await _reconnectIfRunning();
         await ref.read(Preferences.autoAppsSelectionRegion.notifier).update(region);
         await ref.read(Preferences.autoAppsSelectionLastUpdate.notifier).update(DateTime.now());
         return true;
@@ -85,11 +93,15 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   Future<void> revertForceDeselection() async {
     loggy.info('Reverting force deselection');
     await ref.read(appProxyDataSourceProvider).revertForceDeselection(mode: _mode!);
+    await _syncActivePackagesPreference();
+    await _reconnectIfRunning();
   }
 
   Future<void> clearAutoSelected() async {
     loggy.info('Clearing auto selected');
     await ref.read(appProxyDataSourceProvider).clearAutoSelected(mode: _mode!);
+    await _syncActivePackagesPreference();
+    await _reconnectIfRunning();
     await ref.watch(Preferences.autoAppsSelectionRegion.notifier).update(null);
     await ref.read(Preferences.autoAppsSelectionLastUpdate.notifier).update(null);
   }
@@ -97,7 +109,27 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   Future<void> clearAll() async {
     loggy.info('Clearing all items');
     await ref.read(appProxyDataSourceProvider).clearAll(mode: _mode!);
+    await _syncActivePackagesPreference();
+    await _reconnectIfRunning();
     await ref.watch(Preferences.autoAppsSelectionRegion.notifier).update(null);
+  }
+
+  Future<void> _syncActivePackagesPreference() async {
+    final mode = _mode;
+    if (mode == null) return;
+    final packages = await ref.read(appProxyDataSourceProvider).getActivePackages(mode: mode);
+    switch (mode) {
+      case AppProxyMode.include:
+        await ref.read(Preferences.includeApps.notifier).update(packages);
+      case AppProxyMode.exclude:
+        await ref.read(Preferences.excludeApps.notifier).update(packages);
+    }
+  }
+
+  Future<void> _reconnectIfRunning() async {
+    if (!PlatformUtils.isAndroid || !ref.read(serviceRunningProvider)) return;
+    final activeProfile = await ref.read(activeProfileProvider.future);
+    await ref.read(connectionNotifierProvider.notifier).reconnect(activeProfile);
   }
 
   Future<bool> importClipboard() async {

@@ -187,6 +187,7 @@ object TorProcessManager {
         val builder = StringBuilder()
         builder.appendLine("SocksPort 127.0.0.1:${config.socksPort}")
         builder.appendLine("ControlPort 127.0.0.1:${config.controlPort}")
+        builder.appendLine("DNSPort 127.0.0.1:${config.dnsPort}")
         builder.appendLine("CookieAuthentication 1")
         builder.appendLine("DataDirectory ${dataDir.absolutePath}")
         builder.appendLine("ClientOnly 1")

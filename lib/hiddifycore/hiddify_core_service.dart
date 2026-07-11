@@ -8,6 +8,7 @@ import 'package:hiddify/core/directories/directories_provider.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
 import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/features/connection/model/connection_failure.dart';
+import 'package:hiddify/features/log/model/log_level.dart' as config_log_level;
 import 'package:hiddify/features/per_app_proxy/data/selected_data_provider.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/settings/data/config_option_repository.dart';
@@ -17,9 +18,8 @@ import 'package:hiddify/hiddifycore/generated/v2/hcore/hcore.pb.dart';
 import 'package:hiddify/hiddifycore/generated/v2/hcore/hcore_service.pbgrpc.dart';
 import 'package:hiddify/hiddifycore/init_signal.dart';
 import 'package:hiddify/hiddifycore/tor_config_transformer.dart';
-import 'package:hiddify/singbox/model/singbox_config_option.dart';
-import 'package:hiddify/features/log/model/log_level.dart' as config_log_level;
 import 'package:hiddify/singbox/model/core_status.dart';
+import 'package:hiddify/singbox/model/singbox_config_option.dart';
 
 import 'package:hiddify/hiddifycore/core_interface/core_interface_wrapper_stub.dart'
     if (dart.library.io) 'package:hiddify/hiddifycore/core_interface/core_interface_wrapper.dart';
@@ -141,8 +141,7 @@ class HiddifyCoreService with InfraLogger {
       statusController.add(currentState = const CoreStatus.starting());
       loggy.debug("starting");
       await const TorControl().stop();
-      final corePath = await _effectiveConfigPath(path);
-      final background = await core.setupBackground(corePath, name);
+      final background = await core.setupBackground(path, name);
       if (background != const CoreStatus.started()) {
         statusController.add(currentState = const CoreStatus.stopped());
         return left(background.getCoreAlert() ?? const ConnectionFailure.unexpected("failed to start core"));
@@ -163,7 +162,7 @@ class HiddifyCoreService with InfraLogger {
       try {
         final res = await core.bgClient.start(
           StartRequest(
-            configPath: corePath,
+            configPath: path,
             configName: name,
             // configContent: content,
             disableMemoryLimit: disableMemoryLimit,
@@ -197,6 +196,7 @@ class HiddifyCoreService with InfraLogger {
         return left(const ConnectionFailure.unexpected("failed to start background core"));
       }
 
+      await _restartWithTorFinalConfigIfEnabled(name: name, disableMemoryLimit: disableMemoryLimit);
       await _startTorIfEnabled();
 
       // if (res.messageType != MessageType.EMPTY) return left(res);
@@ -235,16 +235,10 @@ class HiddifyCoreService with InfraLogger {
     return TaskEither(() async {
       loggy.debug("restarting");
       await const TorControl().stop();
-      final corePath = await _effectiveConfigPath(path);
       // if (!await core.restart(path, name)) {
       try {
         final res = await core.bgClient.restart(
-          StartRequest(
-            configPath: corePath,
-            configName: name,
-            disableMemoryLimit: disableMemoryLimit,
-            delayStart: true,
-          ),
+          StartRequest(configPath: path, configName: name, disableMemoryLimit: disableMemoryLimit, delayStart: true),
         );
         if (res.messageType != MessageType.EMPTY) return left("${res.messageType} ${res.message}");
       } on GrpcError catch (e) {
@@ -254,6 +248,7 @@ class HiddifyCoreService with InfraLogger {
         }
       }
 
+      await _restartWithTorFinalConfigIfEnabled(name: name, disableMemoryLimit: disableMemoryLimit);
       await _startTorIfEnabled();
 
       return right(unit);
@@ -268,24 +263,51 @@ class HiddifyCoreService with InfraLogger {
     });
   }
 
-  Future<String> _effectiveConfigPath(String path) async {
-    if (!PlatformUtils.isAndroid || !ref.read(Preferences.torEnabled)) return path;
+  Future<void> _restartWithTorFinalConfigIfEnabled({required String name, required bool disableMemoryLimit}) async {
+    if (!PlatformUtils.isAndroid || !ref.read(Preferences.torEnabled)) return;
 
-    final content = await File(path).readAsString();
+    final content = await _readCurrentConfig();
     final mode = ref.read(Preferences.perAppProxyMode);
     final torPackages = mode == PerAppProxyMode.include
         ? await ref.read(appProxyDataSourceProvider).getActiveTorPackages(mode: AppProxyMode.include)
+        : const <String>[];
+    final activePackages = mode == PerAppProxyMode.include
+        ? await ref.read(appProxyDataSourceProvider).getActivePackages(mode: AppProxyMode.include)
         : const <String>[];
     final transformed = const TorConfigTransformer().transform(
       content: content,
       perAppProxyMode: mode,
       perAppTorPackages: torPackages,
+      perAppActivePackages: activePackages,
     );
 
     final directories = ref.read(appDirectoriesProvider).requireValue;
     final file = File('${directories.tempDir.path}${Platform.pathSeparator}hiddify-tor-config.json');
     await file.writeAsString(transformed);
-    return file.path;
+
+    final res = await core.bgClient.restart(
+      StartRequest(
+        configPath: file.path,
+        configName: name,
+        disableMemoryLimit: disableMemoryLimit,
+        enableRawConfig: true,
+      ),
+    );
+    if (res.messageType != MessageType.EMPTY) {
+      throw "failed to restart with Tor raw config: ${res.messageType} ${res.message}";
+    }
+  }
+
+  Future<String> _readCurrentConfig() async {
+    final directories = ref.read(appDirectoriesProvider).requireValue;
+    final file = File(
+      '${directories.workingDir.path}${Platform.pathSeparator}data${Platform.pathSeparator}current-config.json',
+    );
+    for (var i = 0; i < 20; i++) {
+      if (await file.exists()) return file.readAsString();
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    throw "current-config.json was not generated";
   }
 
   Future<void> _startTorIfEnabled() async {
@@ -296,7 +318,7 @@ class HiddifyCoreService with InfraLogger {
       return;
     }
 
-    final tor = const TorControl();
+    const tor = TorControl();
     final upstreamSocksPort = ref.read(ConfigOptions.mixedPort);
     loggy.info("starting Tor after core is connected, upstream SOCKS: 127.0.0.1:$upstreamSocksPort");
     final upstreamReady = await tor.waitUntilUpstreamReady(upstreamSocksPort: upstreamSocksPort);

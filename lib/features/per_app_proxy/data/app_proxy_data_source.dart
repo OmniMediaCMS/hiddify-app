@@ -13,6 +13,7 @@ abstract interface class AppProxyDataSource {
   Stream<List<AppProxyEntry>> watchAll({required AppProxyMode mode});
   Stream<List<AppProxyEntry>> watchFilterForDisplay({required Set<String> phonePkgs, required AppProxyMode mode});
   Stream<List<String>> watchActivePackages({required Set<String> phonePkgs, required AppProxyMode mode});
+  Future<List<String>> getActivePackages({required AppProxyMode mode});
   Future<List<String>> getActiveTorPackages({required AppProxyMode mode});
   Future<List<String>> getPkgsByFlag({required PkgFlag flag, required AppProxyMode mode});
   Future<void> importPkgs({required PerAppProxyBackup backup});
@@ -115,6 +116,18 @@ class AppProxyDao extends DatabaseAccessor<Db> with _$AppProxyDaoMixin, InfraLog
     return query.watch().map((rows) {
       return rows.map((row) => row.read(appProxyEntries.pkgName)!).toList();
     });
+  }
+
+  @override
+  Future<List<String>> getActivePackages({required AppProxyMode mode}) {
+    final query = selectOnly(appProxyEntries)..addColumns([appProxyEntries.pkgName]);
+    final isForceDeselectionSet = appProxyEntries.flags
+        .bitwiseAnd(Constant(PkgFlag.forceDeselection.value))
+        .equals(PkgFlag.forceDeselection.value);
+
+    query.where(appProxyEntries.mode.equalsValue(mode) & isForceDeselectionSet.not());
+
+    return query.map((row) => row.read(appProxyEntries.pkgName)!).get();
   }
 
   @override

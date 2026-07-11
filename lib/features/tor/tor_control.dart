@@ -10,6 +10,7 @@ class TorControl {
 
   static const socksPort = 19050;
   static const controlPort = 19051;
+  static const dnsPort = 19053;
   static const defaultUpstreamSocksPort = 12334;
 
   static const _channel = MethodChannel('com.hiddify.app/method');
@@ -27,6 +28,7 @@ class TorControl {
     await _channel.invokeMethod('startTor', {
       'socksPort': socksPort,
       'controlPort': controlPort,
+      'dnsPort': dnsPort,
       'upstreamSocksPort': upstreamSocksPort,
       'bridgeMode': bridgeMode.name,
       'customBridges': bridges,
