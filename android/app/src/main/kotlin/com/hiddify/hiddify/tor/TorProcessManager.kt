@@ -7,6 +7,7 @@ import dalvik.system.DexClassLoader
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -60,6 +61,7 @@ object TorProcessManager {
                 publish(TorStatus.Failed, 0, e.message ?: "Transport native library failed")
                 return@execute
             } catch (e: Exception) {
+                Log.e(TAG, "failed to start transport for mode: $bridgeMode", e)
                 publish(TorStatus.Failed, 0, e.message ?: "Transport failed")
                 return@execute
             }
@@ -89,6 +91,7 @@ object TorProcessManager {
     }
 
     private fun resetStaleStateBeforeStart() {
+        stopTransportRuntime()
         process = null
         readerThread = null
         bootstrapPercent = 0
@@ -131,9 +134,16 @@ object TorProcessManager {
         } catch (e: Exception) {
             Log.w(TAG, "failed while stopping Tor process", e)
         }
+        stopTransportRuntime()
         bootstrapPercent = 0
         summary = "Disabled"
         publish(TorStatus.Disabled, 0, "Disabled")
+    }
+
+    private fun stopTransportRuntime() {
+        val runtime = transportRuntime
+        transportRuntime = null
+        runtime?.stop()
     }
 
     private fun readTorOutput(running: Process) {
@@ -219,7 +229,7 @@ object TorProcessManager {
                 startIptProxyTransport(context, torDir, "Obfs4", "obfs4", upstreamSocksPort)
             }
             "snowflake" -> {
-                startIptProxyTransport(context, torDir, "Snowflake", "snowflake", upstreamSocksPort, useProxy = false)
+                startIptProxyTransport(context, torDir, "Snowflake", "snowflake", upstreamSocksPort)
             }
             "meek" -> {
                 startIptProxyTransport(context, torDir, "MeekLite", "meek_lite", upstreamSocksPort)
@@ -234,7 +244,6 @@ object TorProcessManager {
         iptTransportField: String,
         torTransportName: String,
         upstreamSocksPort: Int,
-        useProxy: Boolean = true,
     ): TransportPlugin {
         val stateDir = File(torDir, "pt-state").also { it.mkdirs() }
         transportRuntime?.let { runtime ->
@@ -252,7 +261,7 @@ object TorProcessManager {
         val runtime = IptProxyRuntime.create(
             context = context,
             stateDir = stateDir,
-            proxyUrl = if (useProxy) "socks5://127.0.0.1:$upstreamSocksPort" else "",
+            proxyUrl = "socks5://127.0.0.1:$upstreamSocksPort",
         )
         val iptTransportName = runtime.transportName(iptTransportField)
         runtime.start(iptTransportName)
@@ -270,7 +279,10 @@ object TorProcessManager {
     }
 
     private fun effectiveBridges(context: Context, mode: String, customBridges: List<String>): List<String> {
-        val cleanedCustom = customBridges.map { it.trim() }.filter { it.isNotEmpty() }
+        val cleanedCustom = customBridges
+            .flatMap { it.split(Regex("\\r\\n?|\\n")) }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
         if (cleanedCustom.isNotEmpty()) return cleanedCustom
         orbotBuiltinBridges(context, mode).takeIf { it.isNotEmpty() }?.let { return it }
         return when (mode) {
@@ -340,14 +352,22 @@ object TorProcessManager {
         }
 
         fun start(transport: String) {
-            controllerClass.getMethod("start", String::class.java, String::class.java)
-                .invoke(controller, transport, proxyUrl)
+            try {
+                controllerClass.getMethod("start", String::class.java, String::class.java)
+                    .invoke(controller, transport, proxyUrl)
+            } catch (e: InvocationTargetException) {
+                throw e.targetException ?: e
+            }
             runningTransport = transport
         }
 
         fun localAddress(transport: String): String {
-            return controllerClass.getMethod("localAddress", String::class.java)
-                .invoke(controller, transport) as String
+            return try {
+                controllerClass.getMethod("localAddress", String::class.java)
+                    .invoke(controller, transport) as String
+            } catch (e: InvocationTargetException) {
+                throw e.targetException ?: e
+            }
         }
 
         fun stop() {
@@ -390,6 +410,7 @@ object TorProcessManager {
                     String::class.java,
                     eventsClass,
                 ).invoke(null, stateDir.absolutePath, true, false, "ERROR", events)
+                    ?: throw IllegalStateException("IPtProxy controller was not created")
                 return IptProxyRuntime(controller, controller.javaClass, proxyUrl, null)
             }
 

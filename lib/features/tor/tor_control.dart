@@ -23,7 +23,7 @@ class TorControl {
   }) async {
     if (!PlatformUtils.isAndroid) return;
     final bridges = customBridgesEnabled
-        ? customBridges.split(RegExp(r'\r?\n')).map((line) => line.trim()).where((line) => line.isNotEmpty).toList()
+        ? customBridges.split(RegExp(r'\r\n?|\n')).map((line) => line.trim()).where((line) => line.isNotEmpty).toList()
         : const <String>[];
     await _channel.invokeMethod('startTor', {
       'socksPort': socksPort,
