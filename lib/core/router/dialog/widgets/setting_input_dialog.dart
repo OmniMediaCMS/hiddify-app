@@ -21,6 +21,7 @@ class SettingInputDialog<T> extends HookConsumerWidget with PresLogger {
     this.optionalAction,
     this.icon,
     this.digitsOnly = false,
+    this.multiline = false,
   });
 
   final String title;
@@ -33,6 +34,7 @@ class SettingInputDialog<T> extends HookConsumerWidget with PresLogger {
   final (String text, VoidCallback)? optionalAction;
   final IconData? icon;
   final bool digitsOnly;
+  final bool multiline;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -110,9 +112,12 @@ class SettingInputDialog<T> extends HookConsumerWidget with PresLogger {
             CustomTextFormField(
               controller: textController,
               inputFormatters: [
-                FilteringTextInputFormatter.singleLineFormatter,
+                if (!multiline) FilteringTextInputFormatter.singleLineFormatter,
                 if (digitsOnly) FilteringTextInputFormatter.digitsOnly,
               ],
+              keyboardType: multiline ? TextInputType.multiline : null,
+              minLines: multiline ? 4 : null,
+              maxLines: multiline ? 8 : 1,
               autoCorrect: true,
               hint: title,
             ),

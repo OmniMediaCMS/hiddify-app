@@ -22,9 +22,7 @@ class TorControl {
     int upstreamSocksPort = defaultUpstreamSocksPort,
   }) async {
     if (!PlatformUtils.isAndroid) return;
-    final bridges = customBridgesEnabled
-        ? customBridges.split(RegExp(r'\r\n?|\n')).map((line) => line.trim()).where((line) => line.isNotEmpty).toList()
-        : const <String>[];
+    final bridges = customBridgesEnabled ? _normalizeBridges(customBridges) : const <String>[];
     await _channel.invokeMethod('startTor', {
       'socksPort': socksPort,
       'controlPort': controlPort,
@@ -33,6 +31,15 @@ class TorControl {
       'bridgeMode': bridgeMode.name,
       'customBridges': bridges,
     });
+  }
+
+  List<String> _normalizeBridges(String value) {
+    return value
+        .split(RegExp(r'\r\n?|\n'))
+        .expand((line) => line.split(RegExp(r'(?=(?:obfs4|snowflake|meek_lite|meek)\s+)')))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
   }
 
   Future<void> stop() async {

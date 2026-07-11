@@ -280,6 +280,7 @@ object TorProcessManager {
     private fun effectiveBridges(context: Context, mode: String, customBridges: List<String>): List<String> {
         val cleanedCustom = customBridges
             .flatMap { it.split(Regex("\\r\\n?|\\n")) }
+            .flatMap { it.split(Regex("(?=(?:obfs4|snowflake|meek_lite|meek)\\s+)")) }
             .map { it.trim() }
             .filter { it.isNotEmpty() }
         if (cleanedCustom.isNotEmpty()) return cleanedCustom

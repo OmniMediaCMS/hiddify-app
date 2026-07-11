@@ -196,6 +196,7 @@ class DialogNotifier extends _$DialogNotifier {
     (String text, VoidCallback)? optionalAction,
     IconData? icon,
     bool digitsOnly = false,
+    bool multiline = false,
   }) async {
     return await _show<T?>(
       SettingInputDialog(
@@ -209,6 +210,7 @@ class DialogNotifier extends _$DialogNotifier {
         optionalAction: optionalAction,
         icon: icon,
         digitsOnly: digitsOnly,
+        multiline: multiline,
       ),
     );
   }

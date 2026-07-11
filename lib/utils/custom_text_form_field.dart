@@ -15,6 +15,8 @@ class CustomTextFormField extends HookConsumerWidget {
     this.suffixIcon,
     this.label,
     this.hint,
+    this.keyboardType,
+    this.minLines,
     this.maxLines,
     this.isDense = false,
     this.autoValidate = false,
@@ -29,6 +31,8 @@ class CustomTextFormField extends HookConsumerWidget {
   final Widget? suffixIcon;
   final String? label;
   final String? hint;
+  final TextInputType? keyboardType;
+  final int? minLines;
   final int? maxLines;
   final bool isDense;
   final bool autoValidate;
@@ -45,6 +49,8 @@ class CustomTextFormField extends HookConsumerWidget {
     return TextFormField(
       controller: textController,
       textCapitalization: TextCapitalization.sentences,
+      keyboardType: keyboardType,
+      minLines: minLines,
       maxLines: maxLines,
       onChanged: onChanged,
       textDirection: textController.textDirection,
@@ -62,7 +68,7 @@ class CustomTextFormField extends HookConsumerWidget {
         focusedErrorBorder: effectiveBorder,
       ),
       validator: validator,
-      textInputAction: TextInputAction.next,
+      textInputAction: keyboardType == TextInputType.multiline ? TextInputAction.newline : TextInputAction.next,
       inputFormatters: inputFormatters,
       autovalidateMode: autoValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
       autocorrect: autoCorrect,

@@ -18,6 +18,7 @@ class ValuePreferenceWidget<T> extends HookConsumerWidget {
     this.validateInput,
     this.inputToValue,
     this.digitsOnly = false,
+    this.multiline = false,
     this.icon,
     this.trailing,
   });
@@ -31,6 +32,7 @@ class ValuePreferenceWidget<T> extends HookConsumerWidget {
   final bool Function(String value)? validateInput;
   final T? Function(String input)? inputToValue;
   final bool digitsOnly;
+  final bool multiline;
   final IconData? icon;
   final Widget? trailing;
 
@@ -55,6 +57,7 @@ class ValuePreferenceWidget<T> extends HookConsumerWidget {
               valueFormatter: formatInputValue,
               onReset: preferences.reset,
               digitsOnly: digitsOnly,
+              multiline: multiline,
               mapTo: inputToValue,
               possibleValues: preferences.possibleValues,
             );
