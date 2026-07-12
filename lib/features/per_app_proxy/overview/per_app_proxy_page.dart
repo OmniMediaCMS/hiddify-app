@@ -24,14 +24,21 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
 
   int _getPriority(AppPackageInfo app, Map<String, int> selected) {
     final flag = selected[app.packageName];
-    if (flag == null) return 4;
-    if (PkgFlag.userSelection.check(flag)) {
-      return 1;
-    } else if (PkgFlag.autoSelection.check(flag) && !PkgFlag.forceDeselection.check(flag)) {
-      return 2;
-    } else {
-      return 3;
-    }
+    if (flag == null) return 3;
+    final isVpnProxied =
+        !PkgFlag.forceDeselection.check(flag) &&
+        (PkgFlag.userSelection.check(flag) || PkgFlag.autoSelection.check(flag));
+    if (!isVpnProxied) return 3;
+    if (PkgFlag.torProxy.check(flag)) return 1;
+    return 2;
+  }
+
+  int _compareApps(AppPackageInfo a, AppPackageInfo b, Map<String, int> selected) {
+    final priorityCompare = _getPriority(a, selected).compareTo(_getPriority(b, selected));
+    if (priorityCompare != 0) return priorityCompare;
+    final nameCompare = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    if (nameCompare != 0) return nameCompare;
+    return a.packageName.compareTo(b.packageName);
   }
 
   Future<Set<AppPackageInfo>> getApps(bool hideSystem) async {
@@ -67,26 +74,25 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
         if (!(selectedApps.hasValue &&
             selectedApps is AsyncData &&
             asyncFilteredApps.hasData &&
-            asyncFilteredApps.connectionState == ConnectionState.done))
+            asyncFilteredApps.connectionState == ConnectionState.done)) {
           return const AsyncValue.loading();
+        }
         final appsList = asyncFilteredApps.requireData.toList();
         if (searchQuery.value.isBlank) {
-          appsList.sort((a, b) {
-            final priorityA = _getPriority(a, selectedApps.requireValue);
-            final priorityB = _getPriority(b, selectedApps.requireValue);
-            return priorityA.compareTo(priorityB);
-          });
+          appsList.sort((a, b) => _compareApps(a, b, selectedApps.requireValue));
           return AsyncValue.data(appsList);
         }
         final filteredAppsList = appsList
             .filter((e) => e.name.toLowerCase().contains(searchQuery.value.toLowerCase()))
             .toList();
+        filteredAppsList.sort((a, b) => _compareApps(a, b, selectedApps.requireValue));
         return AsyncValue.data(filteredAppsList);
       },
       [
         asyncFilteredApps.connectionState == ConnectionState.done,
         hideSystemApps.value,
         selectedApps.hasValue,
+        selectedApps.asData?.value,
         searchQuery.value,
         sortListener.value,
       ],
@@ -245,8 +251,9 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                         tooltip: (mode?.toPerAppProxy() ?? PerAppProxyMode.off).present(t).message,
                         initialValue: mode?.toPerAppProxy() ?? PerAppProxyMode.off,
                         onSelected: (e) async {
-                          if (ref.read(Preferences.autoAppsSelectionRegion) != null)
+                          if (ref.read(Preferences.autoAppsSelectionRegion) != null) {
                             await ref.read(PerAppProxyProvider(mode).notifier).clearAutoSelected();
+                          }
                           if (e == PerAppProxyMode.off && context.mounted) context.pop();
                           await ref.read(Preferences.perAppProxyMode.notifier).update(e);
                         },
