@@ -6,11 +6,16 @@ import 'package:hiddify/features/tor/tor_control.dart';
 class TorConfigTransformer {
   const TorConfigTransformer();
 
+  static const _torSharingInboundTag = 'tor-sharing-in';
+
   String transform({
     required String content,
     required PerAppProxyMode perAppProxyMode,
     required List<String> perAppTorPackages,
     required List<String> perAppActivePackages,
+    required bool enableTorSharing,
+    required int torSharingPort,
+    required String torSharingPassword,
   }) {
     final root = (jsonDecode(content) as Map).cast<String, dynamic>();
     final outbounds = _list(root, 'outbounds');
@@ -31,15 +36,25 @@ class TorConfigTransformer {
       'version': '5',
     });
 
+    _removeGeneratedInbounds(inbounds);
     _removeGeneratedRules(rules);
     if (dns != null && dnsServers != null && dnsRules != null) {
       _ensureDnsServer(dns, dnsServers);
       _removeGeneratedDnsRules(dnsRules);
       dnsRules.insertAll(0, _generatedDnsRules(perAppProxyMode, perAppTorPackages, _tunSourceCidrs(inbounds)));
     }
+    if (enableTorSharing) {
+      _ensureTorSharingInbound(inbounds, torSharingPort, torSharingPassword);
+    }
     rules.insertAll(
       0,
-      _generatedRules(perAppProxyMode, perAppTorPackages, perAppActivePackages, _tunSourceCidrs(inbounds)),
+      _generatedRules(
+        perAppProxyMode,
+        perAppTorPackages,
+        perAppActivePackages,
+        _tunSourceCidrs(inbounds),
+        enableTorSharing,
+      ),
     );
 
     return const JsonEncoder.withIndent('  ').convert(root);
@@ -50,8 +65,22 @@ class TorConfigTransformer {
     List<String> perAppTorPackages,
     List<String> perAppActivePackages,
     List<String> tunSourceCidrs,
+    bool enableTorSharing,
   ) {
     final generated = <Map<String, dynamic>>[];
+    if (enableTorSharing) {
+      generated
+        ..add({
+          'inbound': [_torSharingInboundTag],
+          'network': 'udp',
+          'action': 'reject',
+        })
+        ..add({
+          'inbound': [_torSharingInboundTag],
+          'network': 'tcp',
+          'outbound': 'tor-out',
+        });
+    }
 
     final shouldTorAllProxiedApps = perAppProxyMode != PerAppProxyMode.include;
     if (shouldTorAllProxiedApps) {
@@ -146,6 +175,16 @@ class TorConfigTransformer {
     outbounds.add(outbound);
   }
 
+  void _ensureTorSharingInbound(List<dynamic> inbounds, int port, String password) {
+    final inbound = {'type': 'mixed', 'tag': _torSharingInboundTag, 'listen': '0.0.0.0', 'listen_port': port};
+    if (password.isNotEmpty) {
+      inbound['users'] = [
+        {'username': 'hiddify', 'password': password},
+      ];
+    }
+    inbounds.add(inbound);
+  }
+
   List<String> _tunSourceCidrs(List<dynamic> inbounds) {
     for (final inbound in inbounds) {
       if (inbound is! Map || inbound['tag'] != 'tun-in') continue;
@@ -162,19 +201,11 @@ class TorConfigTransformer {
     servers.removeWhere((item) => item is Map && item['tag'] == 'dns-tor');
     final remoteServer = _remoteDnsServer(dns, servers);
     if (remoteServer == null) return;
-    servers.add({
-      ...remoteServer,
-      'tag': 'dns-tor',
-      'detour': 'tor-out',
-    });
+    servers.add({...remoteServer, 'tag': 'dns-tor', 'detour': 'tor-out'});
   }
 
   Map<String, dynamic>? _remoteDnsServer(Map<String, dynamic> dns, List<dynamic> servers) {
-    final preferredTags = [
-      'dns-remote-fallback',
-      'dns-remote',
-      if (dns['final'] is String) dns['final'] as String,
-    ];
+    final preferredTags = ['dns-remote-fallback', 'dns-remote', if (dns['final'] is String) dns['final'] as String];
     for (final tag in preferredTags) {
       final server = _serverByTag(servers, tag);
       if (server != null && _isTorSafeDnsServer(server)) return server;
@@ -216,14 +247,22 @@ class TorConfigTransformer {
       if (rule is! Map) return false;
       final inbound = rule['inbound'];
       final outbound = rule['outbound'];
+      final generatedTorSharingRule = inbound is List && inbound.contains(_torSharingInboundTag);
       final generatedTunRule =
           inbound is List &&
           inbound.contains('tun-in') &&
           (outbound == 'tor-out' ||
               (rule['action'] == 'reject' && rule['network'] == 'udp') ||
               (rule['action'] == 'hijack-dns' && (rule['protocol'] == 'dns' || rule['port'] == 53)));
-      return (inbound is List && inbound.contains('tor-upstream-in')) || outbound == 'tor-out' || generatedTunRule;
+      return (inbound is List && inbound.contains('tor-upstream-in')) ||
+          outbound == 'tor-out' ||
+          generatedTunRule ||
+          generatedTorSharingRule;
     });
+  }
+
+  void _removeGeneratedInbounds(List<dynamic> inbounds) {
+    inbounds.removeWhere((inbound) => inbound is Map && inbound['tag'] == _torSharingInboundTag);
   }
 
   void _removeGeneratedDnsRules(List<dynamic> rules) {

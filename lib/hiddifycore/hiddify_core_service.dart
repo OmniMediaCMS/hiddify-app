@@ -189,11 +189,23 @@ class HiddifyCoreService with InfraLogger {
         if (e.code == StatusCode.unavailable) {
           return left(const ConnectionFailure.unexpected("background core is not started yet!"));
         }
+        final message = e.message ?? e.toString();
+        if (message.contains("permission denied") ||
+            message.contains("missing vpn permission") ||
+            message.contains("not prepared") ||
+            message.contains("revoked")) {
+          currentState = CoreStatus.stopped(
+            alert: CoreAlert.requestVPNPermission,
+            message: message,
+          );
+          statusController.add(currentState);
+          return left(currentState.getCoreAlert() ?? ConnectionFailure.missingVpnPermission(message));
+        }
         // throw InvalidConfig(e.message);
         // throw DioException.connectionError(requestOptions: RequestOptions(), reason: e.codeName, error: e);
 
         // throw DioException(requestOptions: RequestOptions(), error: e);
-        return left(const ConnectionFailure.unexpected("failed to start background core"));
+        return left(ConnectionFailure.unexpected(message));
       }
 
       await _restartWithTorFinalConfigIfEnabled(name: name, disableMemoryLimit: disableMemoryLimit);
@@ -279,6 +291,9 @@ class HiddifyCoreService with InfraLogger {
       perAppProxyMode: mode,
       perAppTorPackages: torPackages,
       perAppActivePackages: activePackages,
+      enableTorSharing: ref.read(ConfigOptions.enableTorSharing),
+      torSharingPort: ref.read(ConfigOptions.torSharingPort),
+      torSharingPassword: ref.read(ConfigOptions.torSharingPassword),
     );
 
     final directories = ref.read(appDirectoriesProvider).requireValue;

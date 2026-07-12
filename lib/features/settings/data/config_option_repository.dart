@@ -124,6 +124,11 @@ abstract class ConfigOptions {
     12337,
     validator: (value) => isPort(value.toString()),
   );
+  static final torSharingPort = PreferencesNotifier.create<int, int>(
+    "tor-sharing-port",
+    12338,
+    validator: (value) => isPort(value.toString()),
+  );
 
   static final enableMixedPort = PreferencesNotifier.create<bool, bool>("enable-mixed-port", true);
   static final enableTproxyPort = PreferencesNotifier.create<bool, bool>("enable-tproxy-port", true);
@@ -177,8 +182,10 @@ abstract class ConfigOptions {
   // static final bypassLan = PreferencesNotifier.create<bool, bool>("bypass-lan", false);
 
   static final allowConnectionFromLan = PreferencesNotifier.create<bool, bool>("allow-connection-from-lan", false);
+  static final enableTorSharing = PreferencesNotifier.create<bool, bool>("enable-tor-sharing", false);
 
   static final lanSharingPassword = PreferencesNotifier.create<String, String>("lan_sharing_password", "");
+  static final torSharingPassword = PreferencesNotifier.create<String, String>("tor-sharing-password", "");
 
   static final enableFakeDns = PreferencesNotifier.create<bool, bool>("enable-fake-dns", false);
 
@@ -348,6 +355,7 @@ abstract class ConfigOptions {
     "extra-security.warp.license-key",
     "unblocker.warp.license-key",
     "lan-sharing-password",
+    "tor-sharing-password",
   };
 
   static final Map<String, StateNotifierProvider<PreferencesNotifier, dynamic>> preferences = {
@@ -367,6 +375,7 @@ abstract class ConfigOptions {
     "tproxy-port": tproxyPort,
     "direct-port": directPort,
     "redirect-port": redirectPort,
+    "tor-sharing-port": torSharingPort,
     "enable-mixed-port": enableMixedPort,
     "enable-tproxy-port": enableTproxyPort,
     "enable-direct-port": enableDirectPort,
@@ -379,7 +388,9 @@ abstract class ConfigOptions {
     "clash-api-port": clashApiPort,
     // "bypass-lan": bypassLan,
     "allow-connection-from-lan": allowConnectionFromLan,
+    "enable-tor-sharing": enableTorSharing,
     "lan-sharing-password": lanSharingPassword,
+    "tor-sharing-password": torSharingPassword,
     // "enable-dns-routing": enableDnsRouting,
 
     // mux

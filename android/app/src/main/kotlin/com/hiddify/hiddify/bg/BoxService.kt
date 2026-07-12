@@ -163,26 +163,35 @@ class BoxService(
 
             DefaultNetworkMonitor.start()
             Libbox.setMemoryLimit(!Settings.disableMemoryLimit)
-            val newService = try {
-                Mobile.setup(
-                    SetupOptions().also {
-                        it.basePath = Settings.baseDir
-                        it.workingDir = Settings.workingDir
-                        it.tempDir = Settings.tempDir
-                        it.fixAndroidStack = com.hiddify.hiddify.bg.Bugs.fixAndroidStack
-                        it.mode=4L//mode.toLong()
-                        it.listen= "127.0.0.1:${Settings.grpcServiceModePort}"
-                        it.secret=""
-                        it.debug = Settings.debugMode
-                    },platformInterface)
-
-
-//                Libbox.newService(content,platformInterface)
-
-            } catch (e: Exception) {
-                stopAndAlert(Alert.CreateService, e.message)
-                return
+            val setupOptions = SetupOptions().also {
+                it.basePath = Settings.baseDir
+                it.workingDir = Settings.workingDir
+                it.tempDir = Settings.tempDir
+                it.fixAndroidStack = com.hiddify.hiddify.bg.Bugs.fixAndroidStack
+                it.mode=4L//mode.toLong()
+                it.listen= "127.0.0.1:${Settings.grpcServiceModePort}"
+                it.secret=""
+                it.debug = Settings.debugMode
             }
+            try {
+                Mobile.setup(setupOptions, platformInterface)
+            } catch (e: Exception) {
+                Log.e(TAG, "failed to create mobile service, retrying", e)
+                runCatching {
+                    withContext(Dispatchers.Main) {
+                        Mobile.close(4L)
+                    }
+                }
+                delay(300)
+                try {
+                    Mobile.setup(setupOptions, platformInterface)
+                } catch (retryError: Exception) {
+                    Log.e(TAG, "failed to create mobile service after retry", retryError)
+                    stopAndAlert(Alert.CreateService, retryError.message ?: retryError.toString())
+                    return
+                }
+            }
+//                Libbox.newService(content,platformInterface)
             status.postValue(Status.Started)
 
             if (Settings.startCoreAfterStartingService){

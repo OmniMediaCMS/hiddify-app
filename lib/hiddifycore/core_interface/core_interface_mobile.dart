@@ -115,9 +115,14 @@ class CoreInterfaceMobile extends CoreInterface with InfraLogger {
 
     _isBgClientAvailable = true;
     loggy.info("Waiting for starting core");
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 120; i++) {
+      if (await isPortOpen("127.0.0.1", portBack)) {
+        loggy.info("background core port is open");
+        return const CoreStarted();
+      }
+
       try {
-        final res = await _status.get(timeout: const Duration(seconds: 1));
+        final res = await _status.get(timeout: const Duration(milliseconds: 800));
 
         switch (res) {
           case CoreStarted():
@@ -138,11 +143,8 @@ class CoreInterfaceMobile extends CoreInterface with InfraLogger {
     }
     loggy.info("Waiting for starting core finished");
 
-    if (!await waitUntilPort(portBack, true, null, maxTry: 10)) {
-      await stopMethodChannel();
-      return const CoreStatus.stopped(alert: CoreAlert.startService, message: "starting background core...");
-    }
-    return const CoreStarted();
+    await stopMethodChannel();
+    return const CoreStatus.stopped(alert: CoreAlert.startService, message: "starting background core...");
   }
 
   @override

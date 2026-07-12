@@ -94,20 +94,29 @@ class ConnectionNotifier extends _$ConnectionNotifier with AppLogger {
   }
 
   Future<void> reconnect(ProfileEntity? profile) async {
-    if (state case AsyncData(:final value) when value == const Connected()) {
-      if (profile == null) {
-        loggy.info("no active profile, disconnecting");
-        return _disconnect();
+    if (_reconnectInProgress) {
+      loggy.debug("reconnect called while another reconnect is still running, ignoring");
+      return;
+    }
+    _reconnectInProgress = true;
+    try {
+      if (state case AsyncData(:final value) when value == const Connected()) {
+        if (profile == null) {
+          loggy.info("no active profile, disconnecting");
+          return _disconnect();
+        }
+        loggy.info("active profile changed, reconnecting");
+        await ref.read(Preferences.startedByUser.notifier).update(true);
+        await _connectionRepo.reconnect(profile, ref.read(Preferences.disableMemoryLimit)).mapLeft((err) async {
+          loggy.warning("error reconnecting", err);
+          state = AsyncError(err, StackTrace.current);
+          await ref
+              .read(dialogNotifierProvider.notifier)
+              .showCustomAlertFromErr(err.present(ref.read(translationsProvider).requireValue));
+        }).run();
       }
-      loggy.info("active profile changed, reconnecting");
-      await ref.read(Preferences.startedByUser.notifier).update(true);
-      await _connectionRepo.reconnect(profile, ref.read(Preferences.disableMemoryLimit)).mapLeft((err) async {
-        loggy.warning("error reconnecting", err);
-        state = AsyncError(err, StackTrace.current);
-        await ref
-            .read(dialogNotifierProvider.notifier)
-            .showCustomAlertFromErr(err.present(ref.read(translationsProvider).requireValue));
-      }).run();
+    } finally {
+      _reconnectInProgress = false;
     }
   }
 
@@ -123,6 +132,7 @@ class ConnectionNotifier extends _$ConnectionNotifier with AppLogger {
   }
 
   final _singleStart = SingleCall();
+  bool _reconnectInProgress = false;
 
   Future<void> _connect() async {
     _singleStart.run(

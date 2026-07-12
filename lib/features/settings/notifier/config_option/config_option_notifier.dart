@@ -41,10 +41,35 @@ class ConfigOptionNotifier extends _$ConfigOptionNotifier with AppLogger {
         }
       }
     }, fireImmediately: true);
+    ref.listen(ConfigOptions.torSharingPort, (previous, next) async {
+      await _reconnectAfterOptionChange(serviceRunning, previous, next);
+    });
+    ref.listen(ConfigOptions.enableTorSharing, (previous, next) async {
+      await _reconnectAfterOptionChange(serviceRunning, previous, next);
+    });
+    ref.listen(ConfigOptions.torSharingPassword, (previous, next) async {
+      await _reconnectAfterOptionChange(serviceRunning, previous, next);
+    });
     return false;
   }
 
   DateTime? _lastUpdate;
+  bool _reconnectInProgress = false;
+
+  Future<void> _reconnectAfterOptionChange<T>(bool serviceRunning, T? previous, T next) async {
+    if (!serviceRunning || previous == null || previous == next || _reconnectInProgress) return;
+    final now = DateTime.now();
+    if (_lastUpdate != null && now.difference(_lastUpdate!) <= const Duration(milliseconds: 500)) return;
+
+    _lastUpdate = now;
+    _reconnectInProgress = true;
+    try {
+      final activeProfile = await ref.read(activeProfileProvider.future);
+      await ref.read(connectionNotifierProvider.notifier).reconnect(activeProfile);
+    } finally {
+      _reconnectInProgress = false;
+    }
+  }
 
   Future<String?> _exportJson(bool excludePrivate) async {
     try {

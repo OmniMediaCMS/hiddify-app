@@ -49,6 +49,16 @@ class InboundOptionsPage extends HookConsumerWidget with AppLogger {
             validateInput: isPort,
             trailing: SwitchPreferenceWidget(preference: ConfigOptions.enableMixedPort),
           ),
+          if (PlatformUtils.isAndroid)
+            ValuePreferenceWidget(
+              value: ref.watch(ConfigOptions.torSharingPort),
+              preferences: ref.watch(ConfigOptions.torSharingPort.notifier),
+              title: 'Tor sharing port',
+              icon: Icons.security_rounded,
+              inputToValue: int.tryParse,
+              digitsOnly: true,
+              validateInput: isPort,
+            ),
           if (PlatformUtils.isLinux)
             ValuePreferenceWidget(
               value: ref.watch(ConfigOptions.tproxyPort),
