@@ -28,10 +28,16 @@ part 'per_app_proxy_notifier.g.dart';
 @riverpod
 class PerAppProxy extends _$PerAppProxy with AppLogger {
   late final AppProxyMode? _mode;
+  Timer? _reconnectDebounce;
+  bool _reconnectQueued = false;
+  bool _reconnectRunning = false;
 
   @override
   Stream<Map<String, int>> build(AppProxyMode? mode) {
     _mode = mode;
+    ref.onDispose(() {
+      _reconnectDebounce?.cancel();
+    });
     if (_mode == null) return Stream.value({});
     final appsInfo = InstalledApps.getInstalledApps(false);
     return Stream.fromFuture(appsInfo).asyncExpand((appsInfo) {
@@ -48,14 +54,14 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
     loggy.info('Updationg $pkg status');
     await ref.read(appProxyDataSourceProvider).updatePkg(pkg: pkg, mode: _mode!);
     await _syncActivePackagesPreference();
-    await _reconnectIfRunning();
+    _scheduleReconnectIfRunning();
   }
 
   Future<void> toggleTorForPkg(String pkg) async {
     loggy.info('Updating Tor status for $pkg');
     await ref.read(appProxyDataSourceProvider).toggleTorForPkg(pkg: pkg, mode: _mode!);
     await _syncActivePackagesPreference();
-    await _reconnectIfRunning();
+    _scheduleReconnectIfRunning();
   }
 
   Future<bool> applyAutoSelection() async {
@@ -68,7 +74,7 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
         final autoList = rs.$1!;
         await ref.read(appProxyDataSourceProvider).applyAutoSelection(autoList: autoList, mode: _mode!);
         await _syncActivePackagesPreference();
-        await _reconnectIfRunning();
+        _scheduleReconnectIfRunning();
         await ref.read(Preferences.autoAppsSelectionRegion.notifier).update(region);
         await ref.read(Preferences.autoAppsSelectionLastUpdate.notifier).update(DateTime.now());
         return true;
@@ -94,14 +100,14 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
     loggy.info('Reverting force deselection');
     await ref.read(appProxyDataSourceProvider).revertForceDeselection(mode: _mode!);
     await _syncActivePackagesPreference();
-    await _reconnectIfRunning();
+    _scheduleReconnectIfRunning();
   }
 
   Future<void> clearAutoSelected() async {
     loggy.info('Clearing auto selected');
     await ref.read(appProxyDataSourceProvider).clearAutoSelected(mode: _mode!);
     await _syncActivePackagesPreference();
-    await _reconnectIfRunning();
+    _scheduleReconnectIfRunning();
     await ref.watch(Preferences.autoAppsSelectionRegion.notifier).update(null);
     await ref.read(Preferences.autoAppsSelectionLastUpdate.notifier).update(null);
   }
@@ -110,7 +116,7 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
     loggy.info('Clearing all items');
     await ref.read(appProxyDataSourceProvider).clearAll(mode: _mode!);
     await _syncActivePackagesPreference();
-    await _reconnectIfRunning();
+    _scheduleReconnectIfRunning();
     await ref.watch(Preferences.autoAppsSelectionRegion.notifier).update(null);
   }
 
@@ -123,6 +129,29 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
         await ref.read(Preferences.includeApps.notifier).update(packages);
       case AppProxyMode.exclude:
         await ref.read(Preferences.excludeApps.notifier).update(packages);
+    }
+  }
+
+  void _scheduleReconnectIfRunning() {
+    if (!PlatformUtils.isAndroid || !ref.read(serviceRunningProvider)) return;
+    _reconnectQueued = true;
+    _reconnectDebounce?.cancel();
+    _reconnectDebounce = Timer(const Duration(milliseconds: 800), () {
+      unawaited(_runQueuedReconnect());
+    });
+  }
+
+  Future<void> _runQueuedReconnect() async {
+    if (_reconnectRunning) return;
+    _reconnectRunning = true;
+    try {
+      while (_reconnectQueued) {
+        _reconnectQueued = false;
+        await _reconnectIfRunning();
+      }
+    } finally {
+      _reconnectRunning = false;
+      if (_reconnectQueued) unawaited(_runQueuedReconnect());
     }
   }
 

@@ -37,10 +37,15 @@ object Settings {
                 preferences.getString(SettingsKey.PER_APP_PROXY_EXCLUDE_LIST, "")!!
             }
             if (!stringValue.startsWith(LIST_IDENTIFIER)) {
-                return stringValue.split(";")
+                return stringValue
+                    .split(";")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
             }
             return try {
                 decodeListString(stringValue.substring(LIST_IDENTIFIER.length))
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
             } catch (e: java.lang.Exception) {
                 emptyList()
             }

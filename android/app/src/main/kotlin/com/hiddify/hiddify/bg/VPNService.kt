@@ -89,7 +89,14 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
         if (!hasPermission) {
              error("android: missing vpn permission")
     }
-//        service.fileDescriptor?.close()
+        service.fileDescriptor?.let { pfd ->
+            runCatching {
+                pfd.close()
+            }.onFailure {
+                Log.w(TAG, "failed to close stale tun descriptor", it)
+            }
+            service.fileDescriptor = null
+        }
 
         val builder = Builder()
             .setSession("hiddify")
@@ -162,6 +169,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
 
             if (Settings.perAppProxyEnabled) {
                 val appList = Settings.perAppProxyList
+                Log.d(TAG, "per-app proxy mode=${Settings.perAppProxyMode}, packages=$appList")
                 if (Settings.perAppProxyMode == PerAppProxyMode.INCLUDE) {
                     appList.forEach {
                         addIncludePackage(builder,it)
